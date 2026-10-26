@@ -8,6 +8,9 @@ import '../../../core/theme/auth_palette.dart';
 import '../../../core/widgets/comments_sheet.dart';
 import '../../../core/widgets/post_time_label.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../messages/providers/message_provider.dart';
+import '../../messages/screens/chat_screen.dart';
+import '../../profile/screens/public_profile_screen.dart';
 import '../models/post_model.dart';
 import '../providers/post_provider.dart';
 
@@ -414,6 +417,32 @@ class _PostCard extends StatelessWidget {
 
   const _PostCard({required this.post});
 
+  void _openPublicProfile(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PublicProfileScreen(userId: post.userId),
+      ),
+    );
+  }
+
+  Future<void> _openChat(BuildContext context, int currentUserId) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          otherUserId: post.userId,
+          otherUserName: post.authorName,
+          currentUserId: currentUserId,
+        ),
+      ),
+    );
+
+    if (context.mounted) {
+      await context.read<MessageProvider>().loadConversations();
+    }
+  }
+
   Future<void> _editPost(BuildContext context) async {
     final controller = TextEditingController(text: post.content);
 
@@ -629,20 +658,27 @@ class _PostCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              _buildAvatar(),
+              InkWell(
+                onTap: () => _openPublicProfile(context),
+                customBorder: const CircleBorder(),
+                child: _buildAvatar(),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      post.authorName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15.5,
-                        color: AuthPalette.ink,
+                    InkWell(
+                      onTap: () => _openPublicProfile(context),
+                      child: Text(
+                        post.authorName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15.5,
+                          color: AuthPalette.ink,
+                        ),
                       ),
                     ),
                     Padding(
@@ -826,7 +862,7 @@ class _PostCard extends StatelessWidget {
                   onPressed: () => provider.toggleLike(post),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
               Expanded(
                 child: _PostAction(
                   icon: Icons.mode_comment_outlined,
@@ -834,6 +870,32 @@ class _PostCard extends StatelessWidget {
                   onPressed: () => CommentsSheet.show(context, post.postId),
                 ),
               ),
+              if (!isOwner) ...[
+                const SizedBox(width: 4),
+                Expanded(
+                  child: _PostAction(
+                    icon: Icons.chat_bubble_outline_rounded,
+                    label: 'Message',
+                    onPressed: () {
+                      final currentUserId = context
+                          .read<AuthProvider>()
+                          .currentUser
+                          ?.userId;
+
+                      if (currentUserId == null) {
+                        _showSnack(
+                          context,
+                          'Please log in to send a message.',
+                          error: true,
+                        );
+                        return;
+                      }
+
+                      _openChat(context, currentUserId);
+                    },
+                  ),
+                ),
+              ],
             ],
           ),
         ],

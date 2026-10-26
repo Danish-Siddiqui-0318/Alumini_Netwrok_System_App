@@ -8,6 +8,7 @@ import 'features/home_posts/providers/post_provider.dart';
 import 'features/home_posts/screens/main_navigation_screen.dart';
 import 'features/notifications/providers/notification_provider.dart';
 import 'features/messages/providers/message_provider.dart';
+import 'features/profile/providers/profile_provider.dart';
 
 void main() {
   runApp(
@@ -17,6 +18,7 @@ void main() {
         ChangeNotifierProvider(create: (_) => PostProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
         ChangeNotifierProvider(create: (_) => MessageProvider()),
+        ChangeNotifierProvider(create: (_) => ProfileProvider()),
       ],
       child: const AlumniNetworkApp(),
     ),
