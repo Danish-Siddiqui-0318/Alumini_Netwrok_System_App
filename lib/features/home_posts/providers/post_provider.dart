@@ -42,8 +42,7 @@ class PostProvider extends ChangeNotifier {
     try {
       _posts = await _repository.getPosts();
 
-      // The feed endpoint doesn't return whether the current user
-      // liked each post, so fetch that status separately.
+      // Fetch whether the current user liked each post.
       await Future.wait(
         _posts.map((post) async {
           try {
@@ -93,6 +92,7 @@ class PostProvider extends ChangeNotifier {
 
     // Update immediately for a responsive feed.
     _likedPosts[post.postId] = !wasLiked;
+
     final index = _posts.indexWhere((p) => p.postId == post.postId);
 
     if (index != -1) {
@@ -101,6 +101,7 @@ class PostProvider extends ChangeNotifier {
         likeCount: (oldPost.likeCount + (wasLiked ? -1 : 1)).clamp(0, 999999),
       );
     }
+
     notifyListeners();
 
     try {
@@ -115,14 +116,16 @@ class PostProvider extends ChangeNotifier {
         _posts[index] = _posts[index].copyWith(likeCount: serverCount);
       }
     } catch (e) {
-      // Restore the previous state if the server request fails.
+      // Restore the previous state if the request fails.
       _likedPosts[post.postId] = wasLiked;
+
       if (index != -1) {
         final oldPost = _posts[index];
         _posts[index] = oldPost.copyWith(
           likeCount: oldPost.likeCount + (wasLiked ? 1 : -1),
         );
       }
+
       _errorMessage = e.toString();
     }
 
@@ -231,8 +234,6 @@ class PostProvider extends ChangeNotifier {
     required int commentId,
   }) async {
     try {
-      _errorMessage = null;
-
       await _repository.deleteComment(commentId);
 
       _commentsByPost[postId]?.removeWhere(

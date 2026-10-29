@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:mime/mime.dart';
+import 'package:http_parser/http_parser.dart';
 
 import '../../../core/config/api_config.dart';
 import '../models/post_model.dart';
@@ -36,6 +38,17 @@ class PostRepository {
     }
 
     throw Exception('Unexpected response from server.');
+  }
+
+  // Creates a multipart image with the correct MIME type.
+  Future<http.MultipartFile> _createImagePart(File image) async {
+    final mimeType = lookupMimeType(image.path) ?? 'application/octet-stream';
+
+    return http.MultipartFile.fromPath(
+      'image',
+      image.path,
+      contentType: MediaType.parse(mimeType),
+    );
   }
 
   // GET /posts
@@ -75,10 +88,9 @@ class PostRepository {
       request.headers['Authorization'] = 'Bearer $token';
       request.fields['content'] = content;
 
-      request.files.add(await http.MultipartFile.fromPath('image', image.path));
+      request.files.add(await _createImagePart(image));
 
       final streamedResponse = await request.send();
-
       response = await http.Response.fromStream(streamedResponse);
     } else {
       response = await http.post(
@@ -138,6 +150,7 @@ class PostRepository {
     return data;
   }
 
+  // DELETE /posts/:postId
   Future<void> deletePost(int postId) async {
     final token = await _getToken();
 
@@ -152,6 +165,7 @@ class PostRepository {
     }
   }
 
+  // PUT /posts/:postId
   Future<void> updatePost({
     required int postId,
     required String content,
@@ -167,7 +181,7 @@ class PostRepository {
     request.fields['content'] = content;
 
     if (image != null) {
-      request.files.add(await http.MultipartFile.fromPath('image', image.path));
+      request.files.add(await _createImagePart(image));
     }
 
     final streamedResponse = await request.send();

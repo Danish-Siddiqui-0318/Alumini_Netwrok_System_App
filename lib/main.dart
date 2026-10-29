@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/theme/auth_palette.dart';
+import 'features/applications/providers/application_provider.dart';
 import 'features/auth/providers/auth_provider.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/home_posts/providers/post_provider.dart';
 import 'features/home_posts/screens/main_navigation_screen.dart';
+import 'features/jobs/providers/job_provider.dart';
 import 'features/notifications/providers/notification_provider.dart';
 import 'features/messages/providers/message_provider.dart';
 import 'features/profile/providers/profile_provider.dart';
@@ -19,6 +21,8 @@ void main() {
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
         ChangeNotifierProvider(create: (_) => MessageProvider()),
         ChangeNotifierProvider(create: (_) => ProfileProvider()),
+        ChangeNotifierProvider(create: (_) => JobProvider()),
+        ChangeNotifierProvider(create: (_) => ApplicationProvider()),
       ],
       child: const AlumniNetworkApp(),
     ),

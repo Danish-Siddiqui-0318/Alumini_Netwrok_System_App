@@ -11,13 +11,35 @@ class ApiClient {
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   // POST JSON
+
   Future<Map<String, dynamic>> post(
     String endpoint, {
     Map<String, dynamic>? body,
   }) async {
+    final uri = Uri.parse('${ApiConfig.baseUrl}$endpoint');
+
+    // Login and signup must work without an existing token.
+    final isPublicAuthEndpoint =
+        endpoint == ApiConfig.login || endpoint == ApiConfig.register;
+
+    String? token;
+
+    if (!isPublicAuthEndpoint) {
+      token = await _getToken();
+    }
+
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+
+    if (token != null) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+
     final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}$endpoint'),
-      headers: {'Content-Type': 'application/json'},
+      uri,
+      headers: headers,
       body: jsonEncode(body ?? {}),
     );
 
@@ -140,5 +162,19 @@ class ApiClient {
     throw Exception(
       data['message']?.toString() ?? 'Request failed (${response.statusCode}).',
     );
+  }
+
+  Future<Map<String, dynamic>> delete(String endpoint) async {
+    final token = await _getToken();
+
+    final response = await http.delete(
+      Uri.parse('${ApiConfig.baseUrl}$endpoint'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    return _handleResponse(response);
   }
 }
