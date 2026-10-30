@@ -27,8 +27,9 @@ class ApplicationModel {
 
   factory ApplicationModel.fromJson(Map<String, dynamic> json) {
     return ApplicationModel(
-      applicationId: int.parse(json['application_id'].toString()),
-      jobId: int.parse(json['job_id'].toString()),
+      applicationId:
+          int.tryParse(json['application_id']?.toString() ?? '') ?? 0,
+      jobId: int.tryParse(json['job_id']?.toString() ?? '') ?? 0,
       coverLetter: json['cover_letter']?.toString(),
       resumeUrl: json['resume_url']?.toString(),
       status: json['status']?.toString() ?? 'pending',

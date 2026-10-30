@@ -4,9 +4,9 @@ import 'package:provider/provider.dart';
 import '../../../core/widgets/app_app_bar.dart';
 import '../../../core/widgets/app_bottom_navigation.dart';
 
+import '../../alumini/screens/alumni_screen.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../auth/screens/login_screen.dart';
-import '../../directory/screens/alumni_screen.dart';
 import '../../jobs/screens/jobs_screen.dart';
 import '../../applications/screens/applications_screen.dart';
 import '../../messages/screens/messages_screen.dart';

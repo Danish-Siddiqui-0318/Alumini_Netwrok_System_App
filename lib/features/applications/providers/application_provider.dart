@@ -1,12 +1,13 @@
 import 'package:flutter/foundation.dart';
 
-import '../../../core/network/api_client.dart';
 import '../models/application_model.dart';
+import '../repositories/application_repository.dart';
 
 class ApplicationProvider extends ChangeNotifier {
-  final ApiClient _apiClient = ApiClient();
+  final ApplicationRepository _repository = ApplicationRepository();
 
   List<ApplicationModel> _applications = [];
+
   bool _isLoading = false;
   bool _isApplying = false;
   String? _error;
@@ -19,6 +20,7 @@ class ApplicationProvider extends ChangeNotifier {
 
   String? get error => _error;
 
+  // Apply for a job
   Future<bool> applyForJob(
     int jobId, {
     String? coverLetter,
@@ -29,12 +31,14 @@ class ApplicationProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _apiClient.post(
-        '/api/jobs/$jobId/apply',
-        body: {'cover_letter': coverLetter, 'resume_url': resumeUrl},
+      await _repository.applyForJob(
+        jobId,
+        coverLetter: coverLetter,
+        resumeUrl: resumeUrl,
       );
 
       await loadMyApplications();
+
       return true;
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');
@@ -45,21 +49,14 @@ class ApplicationProvider extends ChangeNotifier {
     }
   }
 
+  // Load current user's applications
   Future<void> loadMyApplications() async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      final response = await _apiClient.get('/api/applications/my');
-      final List<dynamic> data = response['applications'] ?? [];
-
-      _applications = data
-          .map(
-            (item) =>
-                ApplicationModel.fromJson(Map<String, dynamic>.from(item)),
-          )
-          .toList();
+      _applications = await _repository.getMyApplications();
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');
     } finally {
@@ -68,11 +65,12 @@ class ApplicationProvider extends ChangeNotifier {
     }
   }
 
+  // Withdraw an application
   Future<bool> withdrawApplication(int applicationId) async {
     _error = null;
 
     try {
-      await _apiClient.delete('/api/applications/$applicationId');
+      await _repository.withdrawApplication(applicationId);
 
       _applications.removeWhere(
         (application) => application.applicationId == applicationId,
@@ -87,6 +85,7 @@ class ApplicationProvider extends ChangeNotifier {
     }
   }
 
+  // Check whether user has already applied
   bool hasAppliedFor(int jobId) {
     return _applications.any((application) => application.jobId == jobId);
   }

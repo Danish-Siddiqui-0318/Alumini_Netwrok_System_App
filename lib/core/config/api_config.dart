@@ -1,5 +1,6 @@
 class ApiConfig {
-  static const String baseUrl = 'http://10.0.2.2:5000';
+  static const String baseUrl =
+      'https://palegoldenrod-squid-456461.hostingersite.com';
 
   static const String login = '/auth/login';
   static const String register = '/auth/register';
@@ -8,7 +9,7 @@ class ApiConfig {
   static const String profiles = '/profiles';
   static const String users = '/users';
 
-  // These routes are mounted under /api in server.js
+  // Routes mounted under /api in server.js
   static const String comments = '/api/posts';
   static const String likes = '/api/posts';
   static const String jobs = '/api/jobs';

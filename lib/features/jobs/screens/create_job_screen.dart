@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/theme/auth_palette.dart';
 import '../models/job_model.dart';
 import '../providers/job_provider.dart';
 
@@ -26,7 +28,33 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
   DateTime? _deadline;
   bool _saving = false;
 
+  // Starting values, used to detect unsaved changes.
+  late final String _initialJobType;
+  late final DateTime? _initialDeadline;
+
   bool get _editing => widget.job != null;
+
+  static const _months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  static const _jobTypes = <({String value, String label, IconData icon})>[
+    (value: 'full_time', label: 'Full-time', icon: Icons.work_rounded),
+    (value: 'part_time', label: 'Part-time', icon: Icons.schedule_rounded),
+    (value: 'internship', label: 'Internship', icon: Icons.school_outlined),
+    (value: 'contract', label: 'Contract', icon: Icons.assignment_outlined),
+  ];
 
   @override
   void initState() {
@@ -46,6 +74,9 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
         _deadline = DateTime.tryParse(job.deadline!);
       }
     }
+
+    _initialJobType = _jobType;
+    _initialDeadline = _deadline;
   }
 
   @override
@@ -58,13 +89,72 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
     super.dispose();
   }
 
+  // ---------------------------------------------------------------------------
+  // Logic
+  // ---------------------------------------------------------------------------
+
+  /// Values the form started with (empty when creating a new job).
+  Map<TextEditingController, String> get _initialTexts {
+    final job = widget.job;
+
+    return {
+      _title: job?.title ?? '',
+      _company: job?.company ?? '',
+      _description: job?.description ?? '',
+      _location: job?.location ?? '',
+      _url: job?.applicationUrl ?? '',
+    };
+  }
+
+  bool get _isDirty {
+    final textChanged = _initialTexts.entries.any(
+      (e) => e.key.text.trim() != e.value.trim(),
+    );
+
+    return textChanged ||
+        _jobType != _initialJobType ||
+        _deadline != _initialDeadline;
+  }
+
+  void _showSnack(String message, {bool error = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: error ? AuthPalette.error : AuthPalette.ink,
+          margin: const EdgeInsets.all(16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          content: Row(
+            children: [
+              Icon(
+                error ? Icons.error_outline : Icons.check_circle_outline,
+                color: error ? Colors.white : AuthPalette.brass,
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: Text(message)),
+            ],
+          ),
+        ),
+      );
+  }
+
   Future<void> _pickDeadline() async {
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    // An old deadline (when editing) is before firstDate; showDatePicker would
+    // throw if it were used as initialDate, so fall back to today.
+    final initial = (_deadline != null && !_deadline!.isBefore(today))
+        ? _deadline!
+        : today;
 
     final picked = await showDatePicker(
       context: context,
-      initialDate: _deadline ?? now,
-      firstDate: DateTime(now.year, now.month, now.day),
+      initialDate: initial,
+      firstDate: today,
       lastDate: DateTime(now.year + 10),
       helpText: 'SELECT APPLICATION DEADLINE',
       cancelText: 'CANCEL',
@@ -76,29 +166,40 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
     }
   }
 
-  String _formatDate(DateTime date) {
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
+  void _setDeadlineInDays(int days) {
+    final now = DateTime.now();
+    setState(() {
+      _deadline = DateTime(now.year, now.month, now.day + days);
+    });
+  }
 
-    return '${date.day} ${months[date.month - 1]} ${date.year}';
+  String _formatDate(DateTime date) {
+    return '${date.day} ${_months[date.month - 1]} ${date.year}';
+  }
+
+  /// "Today", "Tomorrow", "In 14 days" or "Already passed".
+  String _relativeDeadline(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final days = DateTime(
+      date.year,
+      date.month,
+      date.day,
+    ).difference(today).inDays;
+
+    if (days < 0) return 'Already passed';
+    if (days == 0) return 'Today';
+    if (days == 1) return 'Tomorrow';
+    return 'In $days days';
   }
 
   Future<void> _save() async {
     FocusScope.of(context).unfocus();
 
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      _showSnack('Please fix the highlighted fields.', error: true);
+      return;
+    }
 
     setState(() => _saving = true);
 
@@ -126,429 +227,570 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
       if (!mounted) return;
 
       if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            behavior: SnackBarBehavior.floating,
-            content: Text(
-              _editing
-                  ? 'Job updated successfully'
-                  : 'Job published successfully',
-            ),
-          ),
+        _showSnack(
+          _editing ? 'Job updated successfully' : 'Job published successfully',
         );
 
         Navigator.pop(context);
       } else {
         setState(() => _saving = false);
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            behavior: SnackBarBehavior.floating,
-            content: Text(provider.error ?? 'Could not save job'),
-          ),
-        );
+        _showSnack(provider.error ?? 'Could not save job', error: true);
       }
     } catch (e) {
       if (!mounted) return;
 
       setState(() => _saving = false);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          behavior: SnackBarBehavior.floating,
-          content: Text('Something went wrong. Please try again.'),
-        ),
-      );
+      _showSnack('Something went wrong. Please try again.', error: true);
     }
   }
 
+  /// Asks before leaving with unsaved changes.
+  Future<void> _handleBack() async {
+    if (_saving) return;
+
+    if (!_isDirty) {
+      Navigator.pop(context);
+      return;
+    }
+
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        icon: const Icon(
+          Icons.edit_off_rounded,
+          color: AuthPalette.error,
+          size: 32,
+        ),
+        title: const Text(
+          'Discard changes?',
+          style: TextStyle(fontWeight: FontWeight.w800, color: AuthPalette.ink),
+        ),
+        content: Text(
+          _editing
+              ? 'You have unsaved changes. If you leave now, they will be '
+                    'lost.'
+              : 'Your job has not been published yet. If you leave now, '
+                    'what you wrote will be lost.',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: AuthPalette.textMuted, height: 1.4),
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            style: TextButton.styleFrom(foregroundColor: AuthPalette.ink),
+            child: const Text('Keep editing'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AuthPalette.error,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              textStyle: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+
+    if (discard == true && mounted) {
+      Navigator.pop(context);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // UI
+  // ---------------------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-
-    return Scaffold(
-      backgroundColor: colors.surface,
-
-      appBar: AppBar(
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        title: Text(
-          _editing ? 'Edit job' : 'Create a job',
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 20),
+    // Back button and system back both go through _handleBack.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _handleBack();
+      },
+      child: Scaffold(
+        backgroundColor: AuthPalette.mist,
+        appBar: AppBar(
+          backgroundColor: AuthPalette.mist,
+          surfaceTintColor: Colors.transparent,
+          foregroundColor: AuthPalette.ink,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          centerTitle: false,
+          titleSpacing: 0,
+          systemOverlayStyle: SystemUiOverlayStyle.dark,
+          leading: IconButton(
+            tooltip: 'Back',
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+            onPressed: _handleBack,
+          ),
+          title: Text(
+            _editing ? 'Edit job' : 'Post a job',
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.4,
+              color: AuthPalette.ink,
+            ),
+          ),
         ),
-        centerTitle: false,
-      ),
-
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+        body: Column(
           children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: colors.primaryContainer,
-                borderRadius: BorderRadius.circular(22),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    height: 54,
-                    width: 54,
-                    decoration: BoxDecoration(
-                      color: colors.surface.withValues(alpha: 0.75),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Icon(
-                      _editing
-                          ? Icons.edit_note_rounded
-                          : Icons.work_outline_rounded,
-                      color: colors.primary,
-                      size: 30,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+            Expanded(
+              child: Form(
+                key: _formKey,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                child: ListView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                  children: [
+                    _buildPreview(),
+                    const SizedBox(height: 16),
+                    _SectionCard(
+                      icon: Icons.work_outline_rounded,
+                      title: 'Job information',
+                      subtitle: 'Tell candidates about the role.',
                       children: [
-                        Text(
-                          _editing
-                              ? 'Update your opportunity'
-                              : 'Find your next great hire',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: colors.onPrimaryContainer,
-                          ),
+                        _field(
+                          controller: _title,
+                          label: 'Job title',
+                          hint: 'e.g. Flutter Developer',
+                          icon: Icons.badge_outlined,
+                          required: true,
+                          capitalization: TextCapitalization.words,
                         ),
-                        const SizedBox(height: 5),
-                        Text(
-                          'Share the details candidates need to know.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: colors.onPrimaryContainer,
-                          ),
+                        _field(
+                          controller: _company,
+                          label: 'Company name',
+                          hint: 'e.g. Acme Technologies',
+                          icon: Icons.business_outlined,
+                          required: true,
+                          capitalization: TextCapitalization.words,
+                        ),
+                        _field(
+                          controller: _description,
+                          label: 'Job description',
+                          hint:
+                              'Responsibilities, requirements, skills and '
+                              'benefits...',
+                          required: true,
+                          maxLines: 7,
+                          capitalization: TextCapitalization.sentences,
+                          showCounter: true,
                         ),
                       ],
                     ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 28),
-
-            _sectionTitle(
-              context,
-              'Job information',
-              'Tell candidates about the role.',
-              Icons.work_outline_rounded,
-            ),
-
-            const SizedBox(height: 18),
-
-            _field(
-              controller: _title,
-              label: 'Job title',
-              hint: 'e.g. Flutter Developer',
-              icon: Icons.badge_outlined,
-              required: true,
-              textCapitalization: TextCapitalization.words,
-            ),
-
-            const SizedBox(height: 16),
-
-            _field(
-              controller: _company,
-              label: 'Company name',
-              hint: 'e.g. Acme Technologies',
-              icon: Icons.business_outlined,
-              required: true,
-              textCapitalization: TextCapitalization.words,
-            ),
-
-            const SizedBox(height: 16),
-
-            _field(
-              controller: _description,
-              label: 'Job description',
-              hint:
-                  'Describe responsibilities, requirements, skills, and benefits...',
-              icon: Icons.subject_rounded,
-              required: true,
-              maxLines: 6,
-            ),
-
-            const SizedBox(height: 28),
-
-            _sectionTitle(
-              context,
-              'Employment details',
-              'Help candidates understand the position.',
-              Icons.tune_rounded,
-            ),
-
-            const SizedBox(height: 18),
-
-            _field(
-              controller: _location,
-              label: 'Location',
-              hint: 'e.g. Karachi or Remote',
-              icon: Icons.location_on_outlined,
-              textCapitalization: TextCapitalization.words,
-            ),
-
-            const SizedBox(height: 18),
-
-            Text(
-              'Employment type',
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-
-            const SizedBox(height: 10),
-
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final spacing = 10.0;
-                final itemWidth = (constraints.maxWidth - spacing) / 2;
-
-                return Wrap(
-                  spacing: spacing,
-                  runSpacing: 10,
-                  children: [
-                    _jobTypeOption(
-                      width: itemWidth,
-                      value: 'full_time',
-                      label: 'Full-time',
-                      icon: Icons.work_rounded,
-                    ),
-                    _jobTypeOption(
-                      width: itemWidth,
-                      value: 'part_time',
-                      label: 'Part-time',
-                      icon: Icons.schedule_rounded,
-                    ),
-                    _jobTypeOption(
-                      width: itemWidth,
-                      value: 'internship',
-                      label: 'Internship',
-                      icon: Icons.school_outlined,
-                    ),
-                    _jobTypeOption(
-                      width: itemWidth,
-                      value: 'contract',
-                      label: 'Contract',
-                      icon: Icons.assignment_outlined,
-                    ),
-                  ],
-                );
-              },
-            ),
-
-            const SizedBox(height: 28),
-
-            _sectionTitle(
-              context,
-              'Application details',
-              'Make it easy for candidates to apply.',
-              Icons.send_outlined,
-            ),
-
-            const SizedBox(height: 18),
-
-            _field(
-              controller: _url,
-              label: 'Application URL',
-              hint: 'https://example.com/apply',
-              icon: Icons.link_rounded,
-              keyboardType: TextInputType.url,
-              validator: (value) {
-                final url = value?.trim() ?? '';
-
-                if (url.isEmpty) return null;
-
-                final uri = Uri.tryParse(url);
-
-                if (uri == null ||
-                    !uri.hasAuthority ||
-                    !(uri.scheme == 'https' || uri.scheme == 'http') ||
-                    uri.host.isEmpty ||
-                    !uri.host.contains('.')) {
-                  return 'Enter a valid URL starting with http:// or https://';
-                }
-
-                return null;
-              },
-            ),
-
-            const SizedBox(height: 18),
-
-            Text(
-              'Application deadline',
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-
-            const SizedBox(height: 10),
-
-            InkWell(
-              onTap: _pickDeadline,
-              borderRadius: BorderRadius.circular(16),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: colors.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: colors.outlineVariant),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.calendar_month_outlined,
-                      color: colors.primary,
-                      size: 26,
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _deadline == null
-                                ? 'Choose a deadline'
-                                : _formatDate(_deadline!),
-                            style: theme.textTheme.bodyLarge?.copyWith(
-                              fontWeight: FontWeight.w700,
+                    _SectionCard(
+                      icon: Icons.tune_rounded,
+                      title: 'Employment details',
+                      subtitle: 'Help candidates understand the position.',
+                      children: [
+                        _field(
+                          controller: _location,
+                          label: 'Location',
+                          hint: 'e.g. Karachi or Remote',
+                          icon: Icons.place_outlined,
+                          capitalization: TextCapitalization.words,
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 10),
+                          child: Text(
+                            'Employment type',
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w800,
+                              color: AuthPalette.ink,
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _deadline == null
-                                ? 'Optional · No deadline set'
-                                : 'Last date for applications',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: colors.onSurfaceVariant,
+                        ),
+                        _buildTypePicker(),
+                        const SizedBox(height: 14),
+                      ],
+                    ),
+                    _SectionCard(
+                      icon: Icons.send_outlined,
+                      title: 'Application details',
+                      subtitle: 'Make it easy for candidates to apply.',
+                      children: [
+                        _field(
+                          controller: _url,
+                          label: 'Application URL',
+                          hint: 'https://example.com/apply',
+                          icon: Icons.link_rounded,
+                          keyboardType: TextInputType.url,
+                          validator: (value) {
+                            final url = value?.trim() ?? '';
+
+                            if (url.isEmpty) return null;
+
+                            final uri = Uri.tryParse(url);
+
+                            if (uri == null ||
+                                !uri.hasAuthority ||
+                                !(uri.scheme == 'https' ||
+                                    uri.scheme == 'http') ||
+                                uri.host.isEmpty ||
+                                !uri.host.contains('.')) {
+                              return 'Enter a valid URL starting with '
+                                  'http:// or https://';
+                            }
+
+                            return null;
+                          },
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 10),
+                          child: Text(
+                            'Application deadline',
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w800,
+                              color: AuthPalette.ink,
                             ),
                           ),
-                        ],
+                        ),
+                        _buildDeadline(),
+                        const SizedBox(height: 14),
+                      ],
+                    ),
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Fields marked with * are required',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: AuthPalette.textMuted,
+                          ),
+                        ),
                       ),
-                    ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color: colors.onSurfaceVariant,
                     ),
                   ],
                 ),
               ),
             ),
-
-            if (_deadline != null) ...[
-              const SizedBox(height: 6),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: () => setState(() => _deadline = null),
-                  icon: const Icon(Icons.close_rounded, size: 18),
-                  label: const Text('Remove deadline'),
-                ),
-              ),
-            ],
-
-            const SizedBox(height: 32),
-
-            // Bottom action area
-            SizedBox(
-              height: 54,
-              child: FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(
-                        _editing
-                            ? Icons.check_circle_outline_rounded
-                            : Icons.publish_rounded,
-                      ),
-                label: Text(
-                  _saving
-                      ? 'Saving...'
-                      : _editing
-                      ? 'Save changes'
-                      : 'Publish job',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            Center(
-              child: Text(
-                'Fields marked with * are required',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: colors.onSurfaceVariant,
-                ),
-              ),
-            ),
+            _buildSaveBar(),
           ],
         ),
       ),
     );
   }
 
-  Widget _sectionTitle(
-    BuildContext context,
-    String title,
-    String subtitle,
-    IconData icon,
-  ) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
+  // --- Live preview -----------------------------------------------------------
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
+  /// Shows how the job will look in the jobs list, updating as you type.
+  Widget _buildPreview() {
+    return ListenableBuilder(
+      listenable: Listenable.merge([_title, _company, _location]),
+      builder: (context, child) {
+        final title = _title.text.trim();
+        final company = _company.text.trim();
+        final location = _location.text.trim();
+        final type = _jobTypes.firstWhere((t) => t.value == _jobType);
+
+        return Container(
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: colors.secondaryContainer,
-            borderRadius: BorderRadius.circular(12),
+            color: AuthPalette.ink,
+            borderRadius: BorderRadius.circular(22),
           ),
-          child: Icon(icon, color: colors.onSecondaryContainer, size: 22),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                title,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+              Row(
+                children: [
+                  Icon(
+                    Icons.visibility_outlined,
+                    size: 16,
+                    color: AuthPalette.brass.withOpacity(0.95),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'LIVE PREVIEW',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1,
+                      color: AuthPalette.brass.withOpacity(0.95),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: colors.onSurfaceVariant,
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: AuthPalette.inkLight,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Text(
+                        company.isNotEmpty ? company[0].toUpperCase() : '?',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title.isEmpty ? 'Job title' : title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: title.isEmpty
+                                  ? AuthPalette.textMuted
+                                  : AuthPalette.ink,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            company.isEmpty ? 'Company name' : company,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                              color: AuthPalette.textMuted,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            children: [
+                              _PreviewChip(
+                                icon: Icons.place_outlined,
+                                label: location.isEmpty
+                                    ? 'Location not specified'
+                                    : location,
+                              ),
+                              _PreviewChip(
+                                icon: Icons.schedule_rounded,
+                                label: type.label,
+                                highlight: true,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
+        );
+      },
+    );
+  }
+
+  // --- Job type ---------------------------------------------------------------
+
+  Widget _buildTypePicker() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 10.0;
+        final itemWidth = (constraints.maxWidth - spacing) / 2;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final type in _jobTypes)
+              SizedBox(
+                width: itemWidth,
+                child: _TypeTile(
+                  label: type.label,
+                  icon: type.icon,
+                  selected: _jobType == type.value,
+                  onTap: _saving
+                      ? null
+                      : () {
+                          HapticFeedback.selectionClick();
+                          setState(() => _jobType = type.value);
+                        },
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  // --- Deadline ---------------------------------------------------------------
+
+  Widget _buildDeadline() {
+    final deadline = _deadline;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Material(
+          color: AuthPalette.mist,
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            onTap: _saving ? null : _pickDeadline,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: deadline == null
+                          ? Colors.white
+                          : AuthPalette.brass,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(
+                      Icons.calendar_month_rounded,
+                      color: deadline == null
+                          ? AuthPalette.inkLight
+                          : AuthPalette.ink,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          deadline == null
+                              ? 'Choose a deadline'
+                              : _formatDate(deadline),
+                          style: const TextStyle(
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w800,
+                            color: AuthPalette.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          deadline == null
+                              ? 'Optional · no deadline set'
+                              : _relativeDeadline(deadline),
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color:
+                                deadline != null &&
+                                    _relativeDeadline(deadline) ==
+                                        'Already passed'
+                                ? AuthPalette.error
+                                : AuthPalette.textMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: AuthPalette.textMuted,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        // Quick picks; "Remove" appears once a date is set.
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _QuickChip(
+              label: '1 week',
+              onTap: _saving ? null : () => _setDeadlineInDays(7),
+            ),
+            _QuickChip(
+              label: '2 weeks',
+              onTap: _saving ? null : () => _setDeadlineInDays(14),
+            ),
+            _QuickChip(
+              label: '1 month',
+              onTap: _saving ? null : () => _setDeadlineInDays(30),
+            ),
+            if (deadline != null)
+              _QuickChip(
+                label: 'Remove',
+                icon: Icons.close_rounded,
+                danger: true,
+                onTap: _saving ? null : () => setState(() => _deadline = null),
+              ),
+          ],
         ),
       ],
+    );
+  }
+
+  // --- Fields -----------------------------------------------------------------
+
+  InputDecoration _decoration({
+    required String label,
+    required String hint,
+    IconData? icon,
+    bool alignTop = false,
+  }) {
+    OutlineInputBorder border(Color color, [double width = 1]) =>
+        OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: color, width: width),
+        );
+
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      hintStyle: TextStyle(color: AuthPalette.textMuted.withOpacity(0.7)),
+      alignLabelWithHint: alignTop,
+      labelStyle: const TextStyle(color: AuthPalette.textMuted),
+      floatingLabelStyle: const TextStyle(
+        color: AuthPalette.ink,
+        fontWeight: FontWeight.w600,
+      ),
+      prefixIcon: icon == null
+          ? null
+          : Icon(icon, color: AuthPalette.inkLight, size: 22),
+      counterText: '',
+      filled: true,
+      fillColor: AuthPalette.mist,
+      contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+      enabledBorder: border(Colors.transparent),
+      disabledBorder: border(Colors.transparent),
+      focusedBorder: border(AuthPalette.ink, 1.6),
+      errorBorder: border(AuthPalette.error),
+      focusedErrorBorder: border(AuthPalette.error, 1.6),
     );
   }
 
@@ -556,121 +798,382 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
     required TextEditingController controller,
     required String label,
     required String hint,
-    required IconData icon,
+    IconData? icon,
     bool required = false,
     int maxLines = 1,
+    bool showCounter = false,
     TextInputType? keyboardType,
-    TextCapitalization textCapitalization = TextCapitalization.none,
+    TextCapitalization capitalization = TextCapitalization.none,
     String? Function(String?)? validator,
   }) {
-    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextFormField(
+            controller: controller,
+            enabled: !_saving,
+            maxLines: maxLines,
+            minLines: maxLines == 1 ? 1 : 4,
+            keyboardType: keyboardType,
+            textCapitalization: capitalization,
+            textInputAction: maxLines == 1
+                ? TextInputAction.next
+                : TextInputAction.newline,
+            decoration: _decoration(
+              label: required ? '$label *' : label,
+              hint: hint,
+              // No icon next to multi-line fields.
+              icon: maxLines > 1 ? null : icon,
+              alignTop: maxLines > 1,
+            ),
+            validator:
+                validator ??
+                (value) {
+                  if (required && (value == null || value.trim().isEmpty)) {
+                    return '$label is required';
+                  }
 
-    return TextFormField(
-      controller: controller,
-      maxLines: maxLines,
-      minLines: maxLines == 1 ? 1 : 4,
-      keyboardType: keyboardType,
-      textCapitalization: textCapitalization,
-      textInputAction: maxLines == 1
-          ? TextInputAction.next
-          : TextInputAction.newline,
-      decoration: InputDecoration(
-        labelText: required ? '$label *' : label,
-        hintText: hint,
-        prefixIcon: Icon(icon),
-        filled: true,
-        fillColor: colors.surfaceContainerLow,
-        alignLabelWithHint: maxLines > 1,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: colors.outlineVariant),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: colors.outlineVariant),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: colors.primary, width: 1.7),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: colors.error),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: colors.error, width: 1.7),
-        ),
+                  return null;
+                },
+          ),
+          if (showCounter)
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: controller,
+              builder: (context, value, child) {
+                final count = value.text.trim().length;
+
+                return Padding(
+                  padding: const EdgeInsets.only(top: 6, right: 4),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      '$count characters',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AuthPalette.textMuted,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+        ],
       ),
-      validator:
-          validator ??
-          (value) {
-            if (required && (value == null || value.trim().isEmpty)) {
-              return '$label is required';
-            }
-
-            return null;
-          },
     );
   }
 
-  Widget _jobTypeOption({
-    required double width,
-    required String value,
-    required String label,
-    required IconData icon,
-  }) {
-    final colors = Theme.of(context).colorScheme;
-    final selected = _jobType == value;
-
-    return SizedBox(
-      width: width,
-      child: InkWell(
-        onTap: () => setState(() => _jobType = value),
-        borderRadius: BorderRadius.circular(15),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15),
-          decoration: BoxDecoration(
-            color: selected
-                ? colors.primaryContainer
-                : colors.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(
-              color: selected ? colors.primary : colors.outlineVariant,
-              width: selected ? 1.6 : 1,
+  /// Always visible, so the user never has to scroll to find "Publish".
+  Widget _buildSaveBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: AuthPalette.ink.withOpacity(0.08),
+            blurRadius: 18,
+            offset: const Offset(0, -6),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: SizedBox(
+            width: double.infinity,
+            height: 54,
+            child: FilledButton.icon(
+              onPressed: _saving ? null : _save,
+              icon: _saving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        color: AuthPalette.ink,
+                      ),
+                    )
+                  : Icon(
+                      _editing
+                          ? Icons.check_circle_outline_rounded
+                          : Icons.publish_rounded,
+                    ),
+              label: Text(
+                _saving
+                    ? 'Saving...'
+                    : _editing
+                    ? 'Save changes'
+                    : 'Publish job',
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: AuthPalette.brass,
+                foregroundColor: AuthPalette.ink,
+                disabledBackgroundColor: AuthPalette.brass.withOpacity(0.55),
+                disabledForegroundColor: AuthPalette.ink,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ),
           ),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                size: 21,
-                color: selected ? colors.primary : colors.onSurfaceVariant,
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                    color: selected
-                        ? colors.onPrimaryContainer
-                        : colors.onSurface,
+        ),
+      ),
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Building blocks
+// -----------------------------------------------------------------------------
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.children,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 2),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: AuthPalette.ink.withOpacity(0.06),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AuthPalette.brass,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, size: 18, color: AuthPalette.ink),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: AuthPalette.ink,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: AuthPalette.textMuted,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TypeTile extends StatelessWidget {
+  const _TypeTile({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        decoration: BoxDecoration(
+          color: selected ? AuthPalette.ink : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? AuthPalette.ink : const Color(0xFFD5DCE6),
+            width: 1.4,
+          ),
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              child: Row(
+                children: [
+                  Icon(
+                    icon,
+                    size: 21,
+                    color: selected ? AuthPalette.brass : AuthPalette.inkLight,
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                        color: selected ? Colors.white : AuthPalette.ink,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    selected
+                        ? Icons.check_circle_rounded
+                        : Icons.circle_outlined,
+                    size: 18,
+                    color: selected
+                        ? AuthPalette.brass
+                        : const Color(0xFFD5DCE6),
+                  ),
+                ],
               ),
-              if (selected)
-                Icon(
-                  Icons.check_circle_rounded,
-                  size: 18,
-                  color: colors.primary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickChip extends StatelessWidget {
+  const _QuickChip({
+    required this.label,
+    required this.onTap,
+    this.icon,
+    this.danger = false,
+  });
+
+  final String label;
+  final VoidCallback? onTap;
+  final IconData? icon;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger ? AuthPalette.error : AuthPalette.ink;
+
+    return Material(
+      color: danger ? AuthPalette.error.withOpacity(0.08) : AuthPalette.mist,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 16, color: color),
+                const SizedBox(width: 4),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: color,
                 ),
+              ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PreviewChip extends StatelessWidget {
+  const _PreviewChip({
+    required this.icon,
+    required this.label,
+    this.highlight = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = highlight ? AuthPalette.good : AuthPalette.ink;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: highlight
+            ? AuthPalette.good.withOpacity(0.12)
+            : AuthPalette.mist,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: highlight ? FontWeight.w800 : FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
